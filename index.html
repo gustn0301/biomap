@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>인터랙티브 캠퍼스 맵 (Firebase 연동)</title>
+    <title>인터랙티브 캠퍼스 맵 (완전 동기화)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -58,7 +58,7 @@
     <header class="w-full max-w-4xl mb-4 flex justify-between items-center">
         <div>
             <h1 class="text-2xl font-bold text-gray-800"><i class="fas fa-map-marked-alt text-blue-600 mr-2"></i>캠퍼스 맵 (실시간 공유)</h1>
-            <p class="text-sm text-gray-500">클릭하여 장소를 공유하세요. 데이터는 Firebase에 저장됩니다.</p>
+            <p class="text-sm text-gray-500">지도와 장소 정보가 모두 실시간으로 동기화됩니다.</p>
         </div>
         <div class="space-x-2">
             <label for="map-uploader" class="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm hover:bg-gray-50 cursor-pointer text-sm transition">
@@ -66,7 +66,7 @@
             </label>
             <input type="file" id="map-uploader" accept="image/*" class="hidden">
             
-            <!-- 초기화 버튼은 데이터베이스 삭제 권한 문제로 로컬 설정 초기화로 변경 -->
+            <!-- 초기화 버튼 -->
             <button id="btn-clear-local" class="bg-red-100 text-red-600 border border-red-200 px-3 py-2 rounded shadow-sm hover:bg-red-200 text-sm transition">
                 <i class="fas fa-sync-alt mr-1"></i> 화면 새로고침
             </button>
@@ -78,6 +78,7 @@
         <div id="map-wrapper" class="relative w-full overflow-hidden rounded-lg bg-gray-50 min-h-[300px]">
             
             <!-- 1. 지도 이미지 -->
+            <!-- 초기 src는 비워두거나 기본값. Firebase 로드 전까지 에러 핸들러 작동 -->
             <img id="map-image" src="image.jpg" alt="지도" 
                  class="w-full h-auto object-contain select-none" 
                  onerror="handleImageError(this)">
@@ -86,9 +87,9 @@
             <div id="map-fallback">
                 <i class="fas fa-map text-6xl text-gray-300 mb-4"></i>
                 <h3 class="text-xl font-bold text-gray-700 mb-2">지도를 찾을 수 없습니다</h3>
-                <p class="text-sm text-gray-500 mb-6">같은 폴더에 'image.jpg'가 없거나 로딩에 실패했습니다.</p>
+                <p class="text-sm text-gray-500 mb-6">아직 공유된 지도가 없습니다. 지도를 업로드해주세요.</p>
                 <label for="map-uploader" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow transition cursor-pointer flex items-center gap-2">
-                    <i class="fas fa-upload"></i> 지도 이미지 업로드하기
+                    <i class="fas fa-upload"></i> 공유 지도 업로드하기
                 </label>
             </div>
 
@@ -171,7 +172,7 @@
         </div>
     </div>
 
-    <!-- [수정] 이미지 에러 핸들러를 모듈 스크립트보다 먼저 선언하여 전역에서 접근 가능하게 함 -->
+    <!-- [수정] 이미지 에러 핸들러 -->
     <script>
         function handleImageError(imgElement) {
             imgElement.style.display = 'none';
@@ -183,9 +184,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // 1. Firebase 설정 (사용자 제공)
+        // 1. Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyAbtjlStDHli1w-Diw15C0_Iv6qyTcV7S8",
             authDomain: "dgpallete.firebaseapp.com",
@@ -200,7 +201,7 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // App ID 설정 (경로 구분용)
+        // App ID 설정
         const appId = 'default-app-id'; 
 
         // 전역 변수
@@ -222,16 +223,39 @@
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     currentUser = user;
-                    // 데이터 실시간 동기화 (Firestore -> 화면)
-                    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'markers');
-                    onSnapshot(colRef, (snapshot) => {
+                    
+                    // A. 마커 데이터 실시간 동기화
+                    const markersRef = collection(db, 'artifacts', appId, 'public', 'data', 'markers');
+                    onSnapshot(markersRef, (snapshot) => {
                         locations = snapshot.docs.map(doc => ({
                             id: doc.id,
                             ...doc.data()
                         }));
                         renderMarkers();
                     }, (error) => {
-                        console.error("데이터 불러오기 오류:", error);
+                        console.error("마커 데이터 오류:", error);
+                    });
+
+                    // B. 지도 배경 이미지 실시간 동기화 (NEW - 수정됨)
+                    // [수정] doc()의 경로는 항상 짝수여야 함. 'map_config'를 컬렉션으로, 'current'를 문서 ID로 변경
+                    const mapConfigRef = doc(db, 'artifacts', appId, 'public', 'data', 'map_config', 'current');
+                    
+                    onSnapshot(mapConfigRef, (docSnap) => {
+                        if (docSnap.exists() && docSnap.data().imageBase64) {
+                            const imgData = docSnap.data().imageBase64;
+                            const imgElement = document.getElementById('map-image');
+                            imgElement.src = imgData;
+                            imgElement.style.display = 'block';
+                            document.getElementById('map-fallback').style.display = 'none';
+                            // 로컬에도 백업 저장 (선택 사항)
+                            localStorage.setItem('customMapImage', imgData);
+                        } else {
+                            // 서버에 지도가 없으면 로컬 확인 또는 폴백 표시
+                            const savedMap = localStorage.getItem('customMapImage');
+                            if (!savedMap && !document.getElementById('map-image').complete) {
+                                handleImageError(document.getElementById('map-image'));
+                            }
+                        }
                     });
                 }
             });
@@ -239,13 +263,17 @@
 
         // 앱 시작
         initApp();
-        loadLocalMapImage(); // 배경 이미지는 로컬 로드
+        // 초기 로딩 시 로컬 스토리지 먼저 확인 (깜빡임 방지)
+        const localMap = localStorage.getItem('customMapImage');
+        if(localMap) {
+            document.getElementById('map-image').src = localMap;
+            document.getElementById('map-image').style.display = 'block';
+            document.getElementById('map-fallback').style.display = 'none';
+        }
 
         // ==========================================
-        // UI 로직 (Global Scope로 함수 노출 필요)
+        // UI 로직
         // ==========================================
-
-        // [수정] handleImageError는 위쪽 script 태그로 이동됨
 
         // 지도 클릭 핸들러
         document.getElementById('click-layer').addEventListener('click', (event) => {
@@ -259,19 +287,15 @@
             
             tempClickCoords = { x, y };
             
-            // 입력 폼 초기화
             document.getElementById('location-form').reset();
             document.getElementById('preview-container').classList.add('hidden');
             openModal('input-modal');
         });
 
-        // 장소 저장 (Firestore에 추가)
+        // 장소 저장 (Firestore)
         document.getElementById('location-form').addEventListener('submit', async (event) => {
             event.preventDefault();
-            if (!currentUser) {
-                alert("로그인 중입니다. 잠시 후 다시 시도해주세요.");
-                return;
-            }
+            if (!currentUser) return;
             
             const title = document.getElementById('input-title').value;
             const desc = document.getElementById('input-desc').value;
@@ -279,9 +303,8 @@
             let imageSrc = null;
 
             if (imageInput.files && imageInput.files[0]) {
-                // 이미지 용량 체크 (1MB 제한 권장)
-                if (imageInput.files[0].size > 1048576) {
-                    alert("이미지 크기가 너무 큽니다. 1MB 이하의 이미지를 사용해주세요.");
+                if (imageInput.files[0].size > 800 * 1024) { // 800KB 제한
+                    alert("이미지가 너무 큽니다. 800KB 이하로 줄여주세요.");
                     return;
                 }
                 imageSrc = await toBase64(imageInput.files[0]);
@@ -317,7 +340,6 @@
                 marker.style.left = `${loc.x}%`;
                 marker.style.top = `${loc.y}%`;
                 
-                // 식물(나뭇잎) 아이콘 스타일 유지
                 marker.innerHTML = `
                     <i class="fas fa-leaf text-4xl text-green-600 drop-shadow-lg filter"></i>
                     <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 bg-gray-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
@@ -332,7 +354,6 @@
             });
         }
 
-        // 상세 보기 모달
         function openViewModal(loc) {
             currentOpenId = loc.id;
             document.getElementById('view-title').innerText = loc.title;
@@ -350,7 +371,6 @@
             openModal('view-modal');
         }
 
-        // 삭제 기능 (Firestore 삭제)
         document.getElementById('btn-delete-location').addEventListener('click', async () => {
             if (!currentOpenId) return;
             if(confirm('정말 삭제하시겠습니까?')) {
@@ -359,35 +379,47 @@
                     closeModal('view-modal');
                 } catch (e) {
                     console.error("Error deleting document: ", e);
-                    alert("삭제에 실패했습니다. 권한이 없거나 오류가 발생했습니다.");
+                    alert("삭제 실패: 권한이 없거나 오류가 발생했습니다.");
                 }
             }
         });
 
-        // 로컬 스토리지: 지도 배경 이미지용 (용량 문제로 로컬 저장 유지)
-        function loadLocalMapImage() {
-            const savedMap = localStorage.getItem('customMapImage');
-            if (savedMap) {
-                const img = document.getElementById('map-image');
-                img.src = savedMap;
-                img.style.display = 'block';
-                document.getElementById('map-fallback').style.display = 'none';
-            }
-        }
-
-        // 지도 배경 업로드
+        // [수정] 지도 배경 업로드 및 공유 (Firestore 저장)
         document.getElementById('map-uploader').addEventListener('change', async function(e) {
+            if (!currentUser) {
+                alert("로그인 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
+                return;
+            }
+
             if (e.target.files && e.target.files[0]) {
-                const base64Map = await toBase64(e.target.files[0]);
-                const img = document.getElementById('map-image');
-                img.src = base64Map;
-                img.style.display = 'block';
-                document.getElementById('map-fallback').style.display = 'none';
-                localStorage.setItem('customMapImage', base64Map);
+                const file = e.target.files[0];
+                
+                // Firestore 문서 용량 제한(1MB) 고려하여 800KB로 제한
+                if (file.size > 800 * 1024) { 
+                    alert("공유 지도의 크기는 800KB 이하여야 합니다.\n이미지 용량을 줄여서 업로드해주세요.");
+                    return;
+                }
+
+                const base64Map = await toBase64(file);
+                
+                if(confirm("이 지도를 모든 사용자와 공유하시겠습니까?\n기존 공유 지도는 덮어씌워집니다.")) {
+                    try {
+                        // [수정] 문서 경로 세그먼트를 짝수로 맞춤: map_config(컬렉션) -> current(문서)
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'map_config', 'current'), {
+                            imageBase64: base64Map,
+                            updatedAt: Date.now(),
+                            updatedBy: currentUser.uid
+                        });
+                        alert("지도가 공유되었습니다!");
+                    } catch (error) {
+                        console.error("지도 업로드 실패:", error);
+                        alert("업로드에 실패했습니다. 데이터베이스 권한을 확인하세요.");
+                    }
+                }
             }
         });
 
-        // 유틸리티 함수들
+        // 유틸리티
         const toBase64 = file => new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
@@ -407,7 +439,6 @@
             el.classList.remove('flex');
         }
 
-        // 미리보기
         document.getElementById('input-image').addEventListener('change', function() {
             if (this.files && this.files[0]) {
                 const reader = new FileReader();
@@ -419,7 +450,6 @@
             }
         });
 
-        // 모달 닫기 버튼 연결
         document.getElementById('btn-close-input').onclick = () => closeModal('input-modal');
         document.getElementById('btn-cancel-input').onclick = () => closeModal('input-modal');
         document.getElementById('btn-close-view').onclick = () => closeModal('view-modal');
