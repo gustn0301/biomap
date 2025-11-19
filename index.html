@@ -3,52 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>생태지도</title>
+    <title>실시간 캠퍼스 맵 (안전모드)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Noto Sans KR', sans-serif; }
         
-        /* 핀 애니메이션 */
-        .pin-bounce {
-            animation: bounce 0.5s cubic-bezier(0.36, 0, 0.66, -0.56) alternate infinite;
-        }
-        @keyframes bounce {
-            0% { transform: translateY(0); }
-            100% { transform: translateY(-10px); }
-        }
-
-        /* 지도 컨테이너 */
         #map-container {
             min-height: 300px;
             background-color: #f3f4f6;
             cursor: crosshair;
         }
 
-        /* 폴백 영역 스타일 */
-        #map-fallback {
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 400px;
-            background-color: #f9fafb;
-            border: 2px dashed #d1d5db;
-            border-radius: 0.5rem;
-            color: #6b7280;
-        }
-        
-        /* 마커 스타일 */
         .marker {
             position: absolute;
             transform: translate(-50%, -100%);
             transition: transform 0.2s;
-            z-index: 10;
+            z-index: 30; 
             cursor: pointer;
         }
         .marker:hover {
-            z-index: 20;
+            z-index: 40;
             transform: translate(-50%, -115%) scale(1.1);
+        }
+        
+        /* 클릭 레이어가 확실히 위에 오도록 설정 */
+        #click-layer {
+            z-index: 10;
         }
     </style>
 </head>
@@ -57,92 +38,57 @@
     <!-- 헤더 -->
     <header class="w-full max-w-4xl mb-4 flex justify-between items-center">
         <div>
-            <h1 class="text-2xl font-bold text-gray-800"><i class="fas fa-map-marked-alt text-blue-600 mr-2"></i>캠퍼스 맵 (실시간 공유)</h1>
-            <p class="text-sm text-gray-500">지도와 장소 정보가 모두 실시간으로 동기화됩니다.</p>
+            <h1 class="text-2xl font-bold text-gray-800"><i class="fas fa-map-marked-alt text-blue-600 mr-2"></i>실시간 캠퍼스 맵</h1>
+            <p class="text-sm text-gray-500">지도 클릭이 안 되면 새로고침을 해보세요.</p>
         </div>
-        <div class="space-x-2">
-            <label for="map-uploader" class="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm hover:bg-gray-50 cursor-pointer text-sm transition">
-                <i class="fas fa-image mr-1"></i> 지도 배경 변경
-            </label>
-            <input type="file" id="map-uploader" accept="image/*" class="hidden">
-            
-            <!-- 초기화 버튼 -->
-            <button id="btn-clear-local" class="bg-red-100 text-red-600 border border-red-200 px-3 py-2 rounded shadow-sm hover:bg-red-200 text-sm transition">
-                <i class="fas fa-sync-alt mr-1"></i> 화면 새로고침
+        <div>
+            <button onclick="window.location.reload()" class="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm hover:bg-gray-50 text-sm transition">
+                <i class="fas fa-sync-alt mr-1"></i> 새로고침
             </button>
         </div>
     </header>
 
     <!-- 메인 지도 영역 -->
     <div class="w-full max-w-4xl bg-white p-2 rounded-xl shadow-lg border border-gray-200">
-        <div id="map-wrapper" class="relative w-full overflow-hidden rounded-lg bg-gray-50 min-h-[300px]">
+        <div id="map-wrapper" class="relative w-full overflow-hidden rounded-lg bg-gray-50 min-h-[400px]">
             
-            <!-- 1. 지도 이미지 -->
-            <!-- 초기 src는 비워두거나 기본값. Firebase 로드 전까지 에러 핸들러 작동 -->
-            <img id="map-image" src="image.jpg" alt="지도" 
-                 class="w-full h-auto object-contain select-none" 
-                 onerror="handleImageError(this)">
+            <!-- 지도 이미지 -->
+            <img id="map-image" src="" alt="지도 로딩중..." class="w-full h-auto object-contain select-none relative z-0">
             
-            <!-- 2. 폴백 화면 -->
-            <div id="map-fallback">
-                <i class="fas fa-map text-6xl text-gray-300 mb-4"></i>
-                <h3 class="text-xl font-bold text-gray-700 mb-2">지도를 찾을 수 없습니다</h3>
-                <p class="text-sm text-gray-500 mb-6">아직 공유된 지도가 없습니다. 지도를 업로드해주세요.</p>
-                <label for="map-uploader" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow transition cursor-pointer flex items-center gap-2">
-                    <i class="fas fa-upload"></i> 공유 지도 업로드하기
-                </label>
+            <!-- 로딩 실패 메시지 -->
+            <div id="map-error" class="hidden absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-500 z-50">
+                <i class="fas fa-exclamation-triangle text-4xl mb-2 text-red-400"></i>
+                <h3 class="text-lg font-bold text-gray-700">지도를 불러올 수 없습니다</h3>
+                <p class="text-sm mt-1">링크를 확인해주세요.</p>
             </div>
 
+            <!-- 클릭 감지 레이어 (인라인 이벤트로 강력하게 연결) -->
+            <div id="click-layer" class="absolute inset-0 w-full h-full cursor-crosshair" onclick="onMapClick(event)"></div>
+
             <!-- 마커 레이어 -->
-            <div id="markers-layer" class="absolute inset-0 w-full h-full pointer-events-none">
-                <!-- Firebase에서 불러온 마커가 여기에 표시됩니다 -->
-            </div>
-            
-            <!-- 클릭 레이어 -->
-            <div id="click-layer" class="absolute inset-0 w-full h-full z-0"></div>
+            <div id="markers-layer" class="absolute inset-0 w-full h-full pointer-events-none z-20"></div>
         </div>
     </div>
 
-    <!-- 데이터 입력 모달 -->
+    <!-- 장소 추가 모달 -->
     <div id="input-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 transform transition-all scale-100">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-md p-6">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold text-gray-800">새 장소 추가</h3>
-                <button id="btn-close-input" class="text-gray-400 hover:text-gray-600">
-                    <i class="fas fa-times text-xl"></i>
-                </button>
+                <h3 class="text-lg font-bold text-gray-800">새 장소 등록</h3>
+                <button onclick="closeModal('input-modal')" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
             </div>
-            
             <form id="location-form">
                 <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2">장소 이름</label>
-                    <input type="text" id="input-title" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: 본관" required>
+                    <input type="text" id="input-title" class="w-full border rounded py-2 px-3 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="예: 학생회관" required>
                 </div>
-                
                 <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2">설명</label>
-                    <textarea id="input-desc" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 h-24" placeholder="설명을 입력하세요..."></textarea>
+                    <textarea id="input-desc" class="w-full border rounded py-2 px-3 h-24 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="장소에 대한 설명을 입력하세요."></textarea>
                 </div>
-
-                <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2">사진 첨부 (선택)</label>
-                    <div class="flex items-center justify-center w-full">
-                        <label class="flex flex-col w-full h-32 border-4 border-dashed hover:bg-gray-100 border-gray-200 group rounded-lg cursor-pointer transition">
-                            <div class="flex flex-col items-center justify-center pt-7">
-                                <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 group-hover:text-blue-500 transition"></i>
-                                <p class="pt-1 text-sm tracking-wider text-gray-400 group-hover:text-gray-600">사진을 선택하세요</p>
-                            </div>
-                            <input type="file" id="input-image" class="opacity-0" accept="image/*">
-                        </label>
-                    </div>
-                    <div id="preview-container" class="mt-2 hidden">
-                        <img id="img-preview" class="w-full h-32 object-cover rounded-lg border border-gray-300">
-                    </div>
-                </div>
-
                 <div class="flex justify-end gap-2">
-                    <button type="button" id="btn-cancel-input" class="px-4 py-2 rounded text-gray-600 hover:bg-gray-100 transition">취소</button>
-                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 shadow transition">저장하기</button>
+                    <button type="button" onclick="closeModal('input-modal')" class="px-4 py-2 rounded text-gray-600 hover:bg-gray-100">취소</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">저장</button>
                 </div>
             </form>
         </div>
@@ -150,283 +96,57 @@
 
     <!-- 정보 보기 모달 -->
     <div id="view-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
-        <div class="bg-white rounded-lg shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
-            <div id="view-image-area" class="w-full h-48 bg-gray-200 hidden">
-                <img id="view-img" class="w-full h-full object-cover">
-            </div>
-            
-            <div class="p-6">
-                <div class="flex justify-between items-start mb-2">
-                    <h3 id="view-title" class="text-2xl font-bold text-gray-800"></h3>
-                    <div class="flex gap-2">
-                        <button id="btn-delete-location" class="text-red-400 hover:text-red-600 transition" title="삭제">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                        <button id="btn-close-view" class="text-gray-400 hover:text-gray-600 transition">
-                            <i class="fas fa-times text-xl"></i>
-                        </button>
-                    </div>
-                </div>
-                <p id="view-desc" class="text-gray-600 whitespace-pre-wrap leading-relaxed"></p>
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 relative">
+            <button onclick="closeModal('view-modal')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+            <h3 id="view-title" class="text-2xl font-bold text-gray-800 mb-2"></h3>
+            <p id="view-desc" class="text-gray-600 whitespace-pre-wrap leading-relaxed mb-4"></p>
+            <div class="flex justify-end border-t pt-4">
+                <button id="btn-delete-location" class="text-red-500 hover:text-red-700 text-sm font-bold">
+                    <i class="fas fa-trash-alt mr-1"></i> 이 장소 삭제
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- [수정] 이미지 에러 핸들러 -->
+    <!-- [1] UI 및 지도 로직 (일반 스크립트: 무조건 실행됨) -->
     <script>
-        function handleImageError(imgElement) {
-            imgElement.style.display = 'none';
-            document.getElementById('map-fallback').style.display = 'flex';
-        }
-    </script>
+        // ==================================================================
+        // [★링크 수정하는 곳★] 
+        // ==================================================================
+        const GITHUB_MAP_URL = 'https://cdn.jsdelivr.net/gh/gustn0301/biomap/map.png'; 
+        // ==================================================================
 
-    <!-- Firebase 및 앱 로직 -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // 1. Firebase 설정
-        const firebaseConfig = {
-            apiKey: "AIzaSyAbtjlStDHli1w-Diw15C0_Iv6qyTcV7S8",
-            authDomain: "dgpallete.firebaseapp.com",
-            projectId: "dgpallete",
-            storageBucket: "dgpallete.firebasestorage.app",
-            messagingSenderId: "121932121210",
-            appId: "1:121932121210:web:271269c50458fdc0dce7c3"
-        };
-
-        // 2. Firebase 초기화
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        // App ID 설정
-        const appId = 'default-app-id'; 
-
-        // 전역 변수
-        let locations = []; 
         let tempClickCoords = { x: 0, y: 0 };
         let currentOpenId = null;
-        let currentUser = null;
 
-        // 3. 인증 및 데이터 리스너 설정
-        async function initApp() {
-            try {
-                await signInAnonymously(auth);
-                console.log("Firebase 로그인 성공");
-            } catch (error) {
-                console.error("Firebase 로그인 실패:", error);
-                alert("데이터베이스 연결에 실패했습니다.");
-            }
+        // 지도 로드
+        const img = document.getElementById('map-image');
+        img.src = GITHUB_MAP_URL + '?v=' + new Date().getTime();
+        img.onerror = function() {
+            this.style.display = 'none';
+            document.getElementById('map-error').classList.remove('hidden');
+            document.getElementById('map-error').classList.add('flex');
+        };
 
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    currentUser = user;
-                    
-                    // A. 마커 데이터 실시간 동기화
-                    const markersRef = collection(db, 'artifacts', appId, 'public', 'data', 'markers');
-                    onSnapshot(markersRef, (snapshot) => {
-                        locations = snapshot.docs.map(doc => ({
-                            id: doc.id,
-                            ...doc.data()
-                        }));
-                        renderMarkers();
-                    }, (error) => {
-                        console.error("마커 데이터 오류:", error);
-                    });
+        // [핵심] 지도 클릭 핸들러 (인라인 호출)
+        function onMapClick(e) {
+            // 에러 화면이 떠있으면 클릭 무시
+            if(document.getElementById('map-error').classList.contains('flex')) return;
 
-                    // B. 지도 배경 이미지 실시간 동기화 (NEW - 수정됨)
-                    // [수정] doc()의 경로는 항상 짝수여야 함. 'map_config'를 컬렉션으로, 'current'를 문서 ID로 변경
-                    const mapConfigRef = doc(db, 'artifacts', appId, 'public', 'data', 'map_config', 'current');
-                    
-                    onSnapshot(mapConfigRef, (docSnap) => {
-                        if (docSnap.exists() && docSnap.data().imageBase64) {
-                            const imgData = docSnap.data().imageBase64;
-                            const imgElement = document.getElementById('map-image');
-                            imgElement.src = imgData;
-                            imgElement.style.display = 'block';
-                            document.getElementById('map-fallback').style.display = 'none';
-                            // 로컬에도 백업 저장 (선택 사항)
-                            localStorage.setItem('customMapImage', imgData);
-                        } else {
-                            // 서버에 지도가 없으면 로컬 확인 또는 폴백 표시
-                            const savedMap = localStorage.getItem('customMapImage');
-                            if (!savedMap && !document.getElementById('map-image').complete) {
-                                handleImageError(document.getElementById('map-image'));
-                            }
-                        }
-                    });
-                }
-            });
-        }
-
-        // 앱 시작
-        initApp();
-        // 초기 로딩 시 로컬 스토리지 먼저 확인 (깜빡임 방지)
-        const localMap = localStorage.getItem('customMapImage');
-        if(localMap) {
-            document.getElementById('map-image').src = localMap;
-            document.getElementById('map-image').style.display = 'block';
-            document.getElementById('map-fallback').style.display = 'none';
-        }
-
-        // ==========================================
-        // UI 로직
-        // ==========================================
-
-        // 지도 클릭 핸들러
-        document.getElementById('click-layer').addEventListener('click', (event) => {
-            if (document.getElementById('map-fallback').style.display === 'flex') return;
-
-            const mapWrapper = document.getElementById('map-wrapper');
-            const rect = mapWrapper.getBoundingClientRect();
+            const wrapper = document.getElementById('map-wrapper');
+            const rect = wrapper.getBoundingClientRect();
             
-            const x = ((event.clientX - rect.left) / rect.width) * 100;
-            const y = ((event.clientY - rect.top) / rect.height) * 100;
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
             
             tempClickCoords = { x, y };
             
+            // 폼 초기화 및 모달 열기
             document.getElementById('location-form').reset();
-            document.getElementById('preview-container').classList.add('hidden');
             openModal('input-modal');
-        });
-
-        // 장소 저장 (Firestore)
-        document.getElementById('location-form').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            if (!currentUser) return;
-            
-            const title = document.getElementById('input-title').value;
-            const desc = document.getElementById('input-desc').value;
-            const imageInput = document.getElementById('input-image');
-            let imageSrc = null;
-
-            if (imageInput.files && imageInput.files[0]) {
-                if (imageInput.files[0].size > 800 * 1024) { // 800KB 제한
-                    alert("이미지가 너무 큽니다. 800KB 이하로 줄여주세요.");
-                    return;
-                }
-                imageSrc = await toBase64(imageInput.files[0]);
-            }
-
-            const newLocation = {
-                x: tempClickCoords.x,
-                y: tempClickCoords.y,
-                title,
-                desc,
-                imageSrc,
-                createdAt: Date.now(),
-                userId: currentUser.uid
-            };
-
-            try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), newLocation);
-                closeModal('input-modal');
-            } catch (e) {
-                console.error("Error adding document: ", e);
-                alert("저장에 실패했습니다.");
-            }
-        });
-
-        // 마커 렌더링
-        function renderMarkers() {
-            const layer = document.getElementById('markers-layer');
-            layer.innerHTML = ''; 
-
-            locations.forEach(loc => {
-                const marker = document.createElement('div');
-                marker.className = 'marker group pointer-events-auto';
-                marker.style.left = `${loc.x}%`;
-                marker.style.top = `${loc.y}%`;
-                
-                marker.innerHTML = `
-                    <i class="fas fa-leaf text-4xl text-green-600 drop-shadow-lg filter"></i>
-                    <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 bg-gray-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
-                        ${loc.title}
-                    </div>
-                `;
-                marker.onclick = (e) => {
-                    e.stopPropagation();
-                    openViewModal(loc);
-                };
-                layer.appendChild(marker);
-            });
         }
 
-        function openViewModal(loc) {
-            currentOpenId = loc.id;
-            document.getElementById('view-title').innerText = loc.title;
-            document.getElementById('view-desc').innerText = loc.desc;
-            
-            const imgArea = document.getElementById('view-image-area');
-            const imgTag = document.getElementById('view-img');
-            
-            if (loc.imageSrc) {
-                imgTag.src = loc.imageSrc;
-                imgArea.classList.remove('hidden');
-            } else {
-                imgArea.classList.add('hidden');
-            }
-            openModal('view-modal');
-        }
-
-        document.getElementById('btn-delete-location').addEventListener('click', async () => {
-            if (!currentOpenId) return;
-            if(confirm('정말 삭제하시겠습니까?')) {
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'markers', currentOpenId));
-                    closeModal('view-modal');
-                } catch (e) {
-                    console.error("Error deleting document: ", e);
-                    alert("삭제 실패: 권한이 없거나 오류가 발생했습니다.");
-                }
-            }
-        });
-
-        // [수정] 지도 배경 업로드 및 공유 (Firestore 저장)
-        document.getElementById('map-uploader').addEventListener('change', async function(e) {
-            if (!currentUser) {
-                alert("로그인 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
-                return;
-            }
-
-            if (e.target.files && e.target.files[0]) {
-                const file = e.target.files[0];
-                
-                // Firestore 문서 용량 제한(1MB) 고려하여 800KB로 제한
-                if (file.size > 800 * 1024) { 
-                    alert("공유 지도의 크기는 800KB 이하여야 합니다.\n이미지 용량을 줄여서 업로드해주세요.");
-                    return;
-                }
-
-                const base64Map = await toBase64(file);
-                
-                if(confirm("이 지도를 모든 사용자와 공유하시겠습니까?\n기존 공유 지도는 덮어씌워집니다.")) {
-                    try {
-                        // [수정] 문서 경로 세그먼트를 짝수로 맞춤: map_config(컬렉션) -> current(문서)
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'map_config', 'current'), {
-                            imageBase64: base64Map,
-                            updatedAt: Date.now(),
-                            updatedBy: currentUser.uid
-                        });
-                        alert("지도가 공유되었습니다!");
-                    } catch (error) {
-                        console.error("지도 업로드 실패:", error);
-                        alert("업로드에 실패했습니다. 데이터베이스 권한을 확인하세요.");
-                    }
-                }
-            }
-        });
-
-        // 유틸리티
-        const toBase64 = file => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = error => reject(error);
-        });
-
+        // 모달 유틸리티
         function openModal(id) {
             const el = document.getElementById(id);
             el.classList.remove('hidden');
@@ -439,22 +159,123 @@
             el.classList.remove('flex');
         }
 
-        document.getElementById('input-image').addEventListener('change', function() {
-            if (this.files && this.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    document.getElementById('img-preview').src = e.target.result;
-                    document.getElementById('preview-container').classList.remove('hidden');
+        // 전역 함수로 노출 (모듈에서 호출하기 위해)
+        window.renderMarkers = function(locations) {
+            const layer = document.getElementById('markers-layer');
+            layer.innerHTML = '';
+            
+            locations.forEach(loc => {
+                const el = document.createElement('div');
+                el.className = 'marker group';
+                el.style.left = loc.x + '%';
+                el.style.top = loc.y + '%';
+                el.innerHTML = `
+                    <i class="fas fa-leaf text-4xl text-green-600 drop-shadow-lg filter"></i>
+                    <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 bg-gray-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
+                        ${loc.title}
+                    </div>
+                `;
+                // 마커 클릭 이벤트
+                el.onclick = (e) => {
+                    e.stopPropagation();
+                    currentOpenId = loc.id;
+                    document.getElementById('view-title').innerText = loc.title;
+                    document.getElementById('view-desc').innerText = loc.desc;
+                    openModal('view-modal');
+                };
+                layer.appendChild(el);
+            });
+        };
+
+        // 현재 선택된 ID 반환 (모듈용)
+        window.getCurrentOpenId = () => currentOpenId;
+        window.getTempCoords = () => tempClickCoords;
+    </script>
+
+    <!-- [2] 데이터 로직 (모듈 스크립트: Firebase) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAbtjlStDHli1w-Diw15C0_Iv6qyTcV7S8",
+            authDomain: "dgpallete.firebaseapp.com",
+            projectId: "dgpallete",
+            storageBucket: "dgpallete.firebasestorage.app",
+            messagingSenderId: "121932121210",
+            appId: "1:121932121210:web:271269c50458fdc0dce7c3"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = 'default-app-id';
+        let currentUser = null;
+
+        // 초기화
+        async function init() {
+            try {
+                await signInAnonymously(auth);
+            } catch(e) {
+                console.error("Auth Error:", e);
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUser = user;
+                    // 실시간 데이터 수신
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), (snapshot) => {
+                        const locs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                        // 일반 스크립트의 함수 호출
+                        window.renderMarkers(locs);
+                    });
                 }
-                reader.readAsDataURL(this.files[0]);
+            });
+        }
+        init();
+
+        // 저장 버튼 이벤트
+        document.getElementById('location-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUser) {
+                alert("데이터베이스 연결 중입니다... 잠시 후 다시 시도해주세요.");
+                return;
+            }
+
+            const coords = window.getTempCoords();
+            const title = document.getElementById('input-title').value;
+            const desc = document.getElementById('input-desc').value;
+
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), {
+                    x: coords.x,
+                    y: coords.y,
+                    title,
+                    desc,
+                    userId: currentUser.uid,
+                    createdAt: Date.now()
+                });
+                window.closeModal('input-modal');
+            } catch (err) {
+                alert("저장 실패: " + err.message);
             }
         });
 
-        document.getElementById('btn-close-input').onclick = () => closeModal('input-modal');
-        document.getElementById('btn-cancel-input').onclick = () => closeModal('input-modal');
-        document.getElementById('btn-close-view').onclick = () => closeModal('view-modal');
-        document.getElementById('btn-clear-local').onclick = () => window.location.reload();
-
+        // 삭제 버튼 이벤트
+        document.getElementById('btn-delete-location').addEventListener('click', async () => {
+            const id = window.getCurrentOpenId();
+            if(!id) return;
+            
+            if(confirm("삭제하시겠습니까?")) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'markers', id));
+                    window.closeModal('view-modal');
+                } catch(err) {
+                    alert("삭제 실패 (권한 부족 등)");
+                }
+            }
+        });
     </script>
 </body>
 </html>
