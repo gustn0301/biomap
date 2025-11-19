@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>생태 지도</title>
     
-    <!-- 나뭇잎 모양 파비콘 -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍃</text></svg>">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -20,7 +19,6 @@
             position: relative;
         }
 
-        /* 마커 스타일: 클릭이 반드시 되도록 pointer-events: auto 설정 */
         .marker {
             position: absolute;
             transform: translate(-50%, -100%);
@@ -34,21 +32,8 @@
             transform: translate(-50%, -115%) scale(1.1);
         }
 
-        /* 클릭 감지 레이어 */
-        #click-layer {
-            z-index: 10;
-        }
-        
-        /* 마커 담는 통 */
-        #markers-layer {
-            z-index: 20;
-            pointer-events: none;
-        }
-
-        /* 연결 상태 표시등 */
-        #connection-status {
-            transition: all 0.3s ease;
-        }
+        #click-layer { z-index: 10; }
+        #markers-layer { z-index: 20; pointer-events: none; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
@@ -60,12 +45,11 @@
             <p class="text-sm text-gray-500"></p>
         </div>
         <div class="flex gap-2 items-center">
-            <!-- [추가됨] DB 연결 상태 표시기 -->
-            <div id="connection-status" class="flex items-center px-3 py-1 bg-red-100 text-red-600 rounded-full text-xs font-bold mr-2 shadow-sm border border-red-200">
-                <div class="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></div>
-                DB 연결 중...
+            <!-- 연결 상태 표시기 -->
+            <div id="connection-status" class="flex items-center px-3 py-1 bg-gray-200 text-gray-600 rounded-full text-xs font-bold mr-2 shadow-sm border border-gray-300">
+                <div class="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
+                연결 대기 중...
             </div>
-
             <button onclick="window.location.reload()" class="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm hover:bg-gray-50 text-sm transition">
                 <i class="fas fa-sync-alt mr-1"></i> 새로고침
             </button>
@@ -76,15 +60,9 @@
     <div class="w-full max-w-4xl bg-white p-2 rounded-xl shadow-lg border border-gray-200">
         <div id="map-wrapper" class="relative w-full overflow-hidden rounded-lg bg-gray-100 min-h-[400px]">
             
-            <!-- 1. 지도 이미지 -->
             <img id="map-image" src="" alt="지도 로딩중..." class="w-full h-auto object-contain select-none relative z-0" style="min-height: 400px;">
-            
-            <!-- 2. 클릭 감지 레이어 -->
             <div id="click-layer" class="absolute inset-0 w-full h-full cursor-crosshair"></div>
-
-            <!-- 3. 마커 레이어 -->
             <div id="markers-layer" class="absolute inset-0 w-full h-full"></div>
-            
             <div id="map-msg" class="absolute top-4 left-4 bg-white/80 px-3 py-1 rounded text-xs text-gray-500 pointer-events-none z-0">
                 지도 상태: 대기중
             </div>
@@ -107,8 +85,6 @@
                     <label class="block text-gray-700 text-sm font-bold mb-2">설명</label>
                     <textarea id="input-desc" class="w-full border rounded py-2 px-3 h-24 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="장소에 대한 설명을 입력하세요."></textarea>
                 </div>
-                
-                <!-- 사진 첨부 필드 -->
                 <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2">사진 첨부 (1MB 이하)</label>
                     <input type="file" id="input-image" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
@@ -116,6 +92,8 @@
                         <img id="img-preview" class="w-full h-40 object-cover rounded border">
                     </div>
                 </div>
+                <!-- 에러 메시지 표시 영역 -->
+                <div id="error-log" class="mb-4 text-xs text-red-600 bg-red-50 p-2 rounded hidden"></div>
 
                 <div class="flex justify-end gap-2">
                     <button type="button" onclick="closeModal('input-modal')" class="px-4 py-2 rounded text-gray-600 hover:bg-gray-100">취소</button>
@@ -133,12 +111,10 @@
             <div id="view-image-area" class="w-full h-48 bg-gray-200 hidden">
                 <img id="view-img" class="w-full h-full object-cover">
             </div>
-            
             <div class="p-6">
                 <button onclick="closeModal('view-modal')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 bg-white rounded-full p-1 shadow"><i class="fas fa-times text-xl"></i></button>
                 <h3 id="view-title" class="text-2xl font-bold text-gray-800 mb-2 mt-2"></h3>
                 <p id="view-desc" class="text-gray-600 whitespace-pre-wrap leading-relaxed mb-4"></p>
-                
                 <div class="flex justify-end border-t pt-4 mt-4">
                     <button id="btn-delete-location" class="text-red-500 hover:text-red-700 text-sm font-bold">
                         <i class="fas fa-trash-alt mr-1"></i> 이 장소 삭제
@@ -148,34 +124,29 @@
         </div>
     </div>
 
-    <!-- [1] UI 및 지도 로직 -->
+    <!-- UI 및 지도 로직 -->
     <script>
         const GITHUB_MAP_URL = 'https://cdn.jsdelivr.net/gh/gustn0301/biomap/map.png'; 
-        
         let tempClickCoords = { x: 0, y: 0 };
         let currentOpenId = null;
-        let isFirebaseReady = false;
 
         const img = document.getElementById('map-image');
         img.src = GITHUB_MAP_URL + '?v=' + new Date().getTime();
-        
         img.onload = () => document.getElementById('map-msg').innerText = "지도 로드 완료";
-        img.onerror = () => document.getElementById('map-msg').innerText = "지도 로드 실패 (클릭은 가능합니다)";
+        img.onerror = () => document.getElementById('map-msg').innerText = "지도 로드 실패";
 
         document.getElementById('click-layer').addEventListener('click', function(e) {
             const wrapper = document.getElementById('map-wrapper');
             const rect = wrapper.getBoundingClientRect();
             const x = ((e.clientX - rect.left) / rect.width) * 100;
             const y = ((e.clientY - rect.top) / rect.height) * 100;
-            
             tempClickCoords = { x, y };
             
             document.getElementById('location-form').reset();
             document.getElementById('preview-container').classList.add('hidden');
-            
-            const saveBtn = document.getElementById('btn-save');
-            saveBtn.disabled = false;
-            saveBtn.innerText = "저장";
+            document.getElementById('error-log').classList.add('hidden');
+            document.getElementById('btn-save').disabled = false;
+            document.getElementById('btn-save').innerText = "저장";
             
             openModal('input-modal');
         });
@@ -203,42 +174,43 @@
             el.classList.remove('flex');
         }
 
-        // UI 상태 업데이트 함수
-        window.updateConnectionStatus = function(status) {
+        window.updateConnectionStatus = function(status, msg) {
             const el = document.getElementById('connection-status');
             if (status === 'connected') {
                 el.innerHTML = '<div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>DB 연결됨';
                 el.className = 'flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold mr-2 shadow-sm border border-green-200';
             } else if (status === 'error') {
-                el.innerHTML = '<div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div>연결 실패';
+                el.innerHTML = `<div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div>${msg || '연결 실패'}`;
                 el.className = 'flex items-center px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold mr-2 shadow-sm border border-red-200';
             }
+        }
+
+        window.showError = function(msg) {
+            const el = document.getElementById('error-log');
+            el.innerText = msg;
+            el.classList.remove('hidden');
         }
 
         window.renderMarkers = function(locations) {
             const layer = document.getElementById('markers-layer');
             layer.innerHTML = '';
-            
             locations.forEach(loc => {
                 const el = document.createElement('div');
                 el.className = 'marker group';
                 el.style.left = loc.x + '%';
                 el.style.top = loc.y + '%';
                 el.style.pointerEvents = 'auto'; 
-                
                 el.innerHTML = `
                     <i class="fas fa-leaf text-4xl text-green-600 drop-shadow-lg filter"></i>
                     <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 bg-gray-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
                         ${loc.title}
                     </div>
                 `;
-                
                 el.addEventListener('click', (e) => {
                     e.stopPropagation();
                     currentOpenId = loc.id;
                     document.getElementById('view-title').innerText = loc.title;
                     document.getElementById('view-desc').innerText = loc.desc;
-                    
                     const imgArea = document.getElementById('view-image-area');
                     const viewImg = document.getElementById('view-img');
                     if (loc.imageSrc) {
@@ -249,7 +221,6 @@
                     }
                     openModal('view-modal');
                 });
-                
                 layer.appendChild(el);
             });
         };
@@ -258,25 +229,25 @@
         window.getTempCoords = () => tempClickCoords;
     </script>
 
-    <!-- [2] 데이터 로직 (Firebase) -->
+    <!-- Firebase 로직 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // [수정됨] 새로운 Firebase 설정 적용
         const firebaseConfig = {
-            apiKey: "AIzaSyAbtjlStDHli1w-Diw15C0_Iv6qyTcV7S8",
-            authDomain: "dgpallete.firebaseapp.com",
-            projectId: "dgpallete",
-            storageBucket: "dgpallete.firebasestorage.app",
-            messagingSenderId: "121932121210",
-            appId: "1:121932121210:web:271269c50458fdc0dce7c3"
+            apiKey: "AIzaSyDgzwte-fN5-c-BdFXAqz2lOzeSmabD-V4",
+            authDomain: "biomap-2fb1f.firebaseapp.com",
+            projectId: "biomap-2fb1f",
+            storageBucket: "biomap-2fb1f.firebasestorage.app",
+            messagingSenderId: "354897042254",
+            appId: "1:354897042254:web:4913448d9d9061d2cf1c1f"
         };
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        // 앱 ID는 고정값 사용 (모두가 공유하기 위해)
         const appId = 'campus-map-v1';
         let currentUser = null;
 
@@ -284,16 +255,16 @@
             try {
                 await signInAnonymously(auth);
             } catch(e) {
-                console.error("인증 실패:", e);
-                window.updateConnectionStatus('error');
+                console.error("인증 에러:", e);
+                window.updateConnectionStatus('error', '로그인 실패');
+                if(e.code === 'auth/operation-not-allowed') {
+                    alert("🚨 중요: 새 프로젝트입니다! Firebase Console -> Authentication -> Sign-in method에서 'Anonymous(익명)'를 사용 설정(Enable)해주세요.");
+                }
             }
 
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     currentUser = user;
-                    
-                    // 실시간 데이터 리스너 연결
-                    // error callback을 추가하여 권한 문제를 감지함
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), 
                         (snapshot) => {
                             const locs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -301,15 +272,13 @@
                             window.updateConnectionStatus('connected');
                         },
                         (error) => {
-                            console.error("데이터 불러오기 실패:", error);
-                            window.updateConnectionStatus('error');
-                            if (error.code === 'permission-denied') {
-                                alert("⚠️ 데이터베이스 권한 오류\n\nFirebase Console에서 Firestore 규칙(Rules)을 확인해주세요.\n\n예시 규칙:\nallow read, write: if true;");
+                            console.error("DB 에러:", error);
+                            window.updateConnectionStatus('error', '권한 없음');
+                            if(error.code === 'permission-denied') {
+                                alert("🚨 중요: 새 프로젝트입니다! Firebase Console -> Firestore Database -> Rules 탭에서 규칙을 'allow read, write: if true;'로 변경해주세요.");
                             }
                         }
                     );
-                } else {
-                    window.updateConnectionStatus('error');
                 }
             });
         }
@@ -322,17 +291,16 @@
             reader.onerror = error => reject(error);
         });
 
-        // 저장 버튼 핸들러
         document.getElementById('location-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-
             const saveBtn = document.getElementById('btn-save');
             const originalText = saveBtn.innerText;
             saveBtn.disabled = true;
             saveBtn.innerText = "저장 중...";
+            window.showError(""); // 에러 초기화
 
             if (!currentUser) {
-                alert("데이터베이스 연결 중입니다... 잠시 후 다시 시도해주세요.");
+                window.showError("로그인되지 않았습니다. 콘솔에서 익명 로그인을 켰는지 확인하세요.");
                 saveBtn.disabled = false;
                 saveBtn.innerText = originalText;
                 return;
@@ -345,52 +313,34 @@
             let imageSrc = null;
 
             if (imageInput.files && imageInput.files[0]) {
-                const file = imageInput.files[0];
-                if (file.size > 1024 * 1024) { 
-                    alert("사진 용량이 너무 큽니다! 1MB 이하의 사진만 올려주세요.");
+                if (imageInput.files[0].size > 1024 * 1024) { 
+                    window.showError("사진 용량 초과 (1MB 이하만 가능)");
                     saveBtn.disabled = false;
                     saveBtn.innerText = originalText;
                     return;
                 }
                 try {
-                    imageSrc = await toBase64(file);
+                    imageSrc = await toBase64(imageInput.files[0]);
                 } catch(err) {
-                    alert("이미지 변환 실패");
+                    window.showError("이미지 처리 실패");
                     saveBtn.disabled = false;
                     saveBtn.innerText = originalText;
                     return;
                 }
             }
 
-            // 타임아웃 Promise
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("TIMEOUT")), 5000)
-            );
-
-            // 저장 요청 Promise
-            const savePromise = addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), {
-                x: coords.x,
-                y: coords.y,
-                title,
-                desc,
-                imageSrc,
-                userId: currentUser.uid,
-                createdAt: Date.now()
-            });
-
             try {
-                // 5초 안에 응답 없으면 강제로 진행
-                await Promise.race([savePromise, timeoutPromise]);
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), {
+                    x: coords.x, y: coords.y, title, desc, imageSrc,
+                    userId: currentUser.uid, createdAt: Date.now()
+                });
                 window.closeModal('input-modal');
             } catch (err) {
-                if (err.message === "TIMEOUT") {
-                    // 타임아웃 시에도 사용자는 성공으로 인식하게 하고 창 닫기 (백그라운드 처리)
-                    alert("저장 요청을 보냈습니다. (네트워크 지연)");
-                    window.closeModal('input-modal');
-                } else if (err.code === 'permission-denied') {
-                    alert("저장 실패: 권한이 거부되었습니다. Firebase 규칙을 확인하세요.");
+                console.error(err);
+                if (err.code === 'permission-denied') {
+                    window.showError("저장 실패: DB 쓰기 권한이 없습니다. (Rules 확인 필요)");
                 } else {
-                    alert("저장 실패: " + err.message);
+                    window.showError("저장 실패: " + err.message);
                 }
             } finally {
                 saveBtn.disabled = false;
@@ -401,17 +351,12 @@
         document.getElementById('btn-delete-location').addEventListener('click', async () => {
             const id = window.getCurrentOpenId();
             if(!id) return;
-            
             if(confirm("삭제하시겠습니까?")) {
                 try {
                     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'markers', id));
                     window.closeModal('view-modal');
                 } catch(err) {
-                    if (err.code === 'permission-denied') {
-                        alert("삭제 실패: 권한이 거부되었습니다.");
-                    } else {
-                        alert("삭제 실패: " + err.message);
-                    }
+                    alert("삭제 실패: " + err.message);
                 }
             }
         });
