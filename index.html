@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>생태 지도</title>
     
-    <!-- [추가됨] 나뭇잎 모양 파비콘 -->
+    <!-- 나뭇잎 모양 파비콘 -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍃</text></svg>">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -44,6 +44,11 @@
             z-index: 20;
             pointer-events: none;
         }
+
+        /* 연결 상태 표시등 */
+        #connection-status {
+            transition: all 0.3s ease;
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
@@ -54,7 +59,13 @@
             <h1 class="text-2xl font-bold text-gray-800"><i class="fas fa-map-marked-alt text-blue-600 mr-2"></i>대건고 생태 지도</h1>
             <p class="text-sm text-gray-500"></p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 items-center">
+            <!-- [추가됨] DB 연결 상태 표시기 -->
+            <div id="connection-status" class="flex items-center px-3 py-1 bg-red-100 text-red-600 rounded-full text-xs font-bold mr-2 shadow-sm border border-red-200">
+                <div class="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></div>
+                DB 연결 중...
+            </div>
+
             <button onclick="window.location.reload()" class="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm hover:bg-gray-50 text-sm transition">
                 <i class="fas fa-sync-alt mr-1"></i> 새로고침
             </button>
@@ -192,6 +203,18 @@
             el.classList.remove('flex');
         }
 
+        // UI 상태 업데이트 함수
+        window.updateConnectionStatus = function(status) {
+            const el = document.getElementById('connection-status');
+            if (status === 'connected') {
+                el.innerHTML = '<div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>DB 연결됨';
+                el.className = 'flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold mr-2 shadow-sm border border-green-200';
+            } else if (status === 'error') {
+                el.innerHTML = '<div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div>연결 실패';
+                el.className = 'flex items-center px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold mr-2 shadow-sm border border-red-200';
+            }
+        }
+
         window.renderMarkers = function(locations) {
             const layer = document.getElementById('markers-layer');
             layer.innerHTML = '';
@@ -253,7 +276,8 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = 'default-app-id';
+        // 앱 ID는 고정값 사용 (모두가 공유하기 위해)
+        const appId = 'campus-map-v1';
         let currentUser = null;
 
         async function init() {
@@ -261,15 +285,31 @@
                 await signInAnonymously(auth);
             } catch(e) {
                 console.error("인증 실패:", e);
+                window.updateConnectionStatus('error');
             }
 
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     currentUser = user;
-                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), (snapshot) => {
-                        const locs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                        window.renderMarkers(locs);
-                    });
+                    
+                    // 실시간 데이터 리스너 연결
+                    // error callback을 추가하여 권한 문제를 감지함
+                    onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), 
+                        (snapshot) => {
+                            const locs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                            window.renderMarkers(locs);
+                            window.updateConnectionStatus('connected');
+                        },
+                        (error) => {
+                            console.error("데이터 불러오기 실패:", error);
+                            window.updateConnectionStatus('error');
+                            if (error.code === 'permission-denied') {
+                                alert("⚠️ 데이터베이스 권한 오류\n\nFirebase Console에서 Firestore 규칙(Rules)을 확인해주세요.\n\n예시 규칙:\nallow read, write: if true;");
+                            }
+                        }
+                    );
+                } else {
+                    window.updateConnectionStatus('error');
                 }
             });
         }
@@ -282,7 +322,7 @@
             reader.onerror = error => reject(error);
         });
 
-        // 저장 버튼 핸들러 (5초 타임아웃 추가)
+        // 저장 버튼 핸들러
         document.getElementById('location-form').addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -322,7 +362,12 @@
                 }
             }
 
-            // 5초 타임아웃 설정
+            // 타임아웃 Promise
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("TIMEOUT")), 5000)
+            );
+
+            // 저장 요청 Promise
             const savePromise = addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'markers'), {
                 x: coords.x,
                 y: coords.y,
@@ -333,19 +378,17 @@
                 createdAt: Date.now()
             });
 
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("TIMEOUT")), 5000)
-            );
-
             try {
-                // 저장 시도 (5초 제한)
+                // 5초 안에 응답 없으면 강제로 진행
                 await Promise.race([savePromise, timeoutPromise]);
                 window.closeModal('input-modal');
             } catch (err) {
                 if (err.message === "TIMEOUT") {
-                    // 타임아웃이어도 저장은 백그라운드에서 진행되므로 성공으로 간주하고 닫음
-                    alert("저장이 지연되고 있지만, 곧 반영됩니다. 창을 닫습니다.");
+                    // 타임아웃 시에도 사용자는 성공으로 인식하게 하고 창 닫기 (백그라운드 처리)
+                    alert("저장 요청을 보냈습니다. (네트워크 지연)");
                     window.closeModal('input-modal');
+                } else if (err.code === 'permission-denied') {
+                    alert("저장 실패: 권한이 거부되었습니다. Firebase 규칙을 확인하세요.");
                 } else {
                     alert("저장 실패: " + err.message);
                 }
@@ -364,7 +407,11 @@
                     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'markers', id));
                     window.closeModal('view-modal');
                 } catch(err) {
-                    alert("삭제 실패 (권한 문제 등)");
+                    if (err.code === 'permission-denied') {
+                        alert("삭제 실패: 권한이 거부되었습니다.");
+                    } else {
+                        alert("삭제 실패: " + err.message);
+                    }
                 }
             }
         });
